@@ -108,42 +108,6 @@ class SelectorDIC(ModelSelector):
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
     '''
 
-    # def select(self):
-    #     warnings.filterwarnings("ignore", category=DeprecationWarning)
-    #     best_dic = float('-inf')
-    #     best_model = None
-
-    #     for n in self.components:
-    #         if len(self.sequences) <= 1:
-    #             continue
-    #         try:
-    #             model = GaussianHMM(n_components=n, covariance_type="diag", n_iter=1000,
-    #                                     random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
-    #             logL = model.score(self.X, self.lengths)
-    #             total_score = 0
-    #             word_count = 0
-    #             for word, features in self.hwords.items():
-    #                 if word != self.this_word:
-    #                     x, lengths = features
-    #                     try:
-    #                         score = model.score(x, lengths)
-    #                         total_score += score
-    #                         word_count += 1
-    #                     except:
-    #                         print('error in inner')
-    #                         pass
-    #             avg_score = total_score/word_count
-    #             dic = logL-avg_score
-    #             if dic > best_dic:
-    #                 best_model = model
-    #                 best_dic = dic
-    #         except:
-    #             print('Error in outer')
-    #             pass
-    #     return best_model
-
-
-
     def get_penalty(self, model):
         other_logL = []
         for word in self.words:
