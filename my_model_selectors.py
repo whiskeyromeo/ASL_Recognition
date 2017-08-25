@@ -27,6 +27,7 @@ class ModelSelector(object):
         self.max_n_components = max_n_components
         self.random_state = random_state
         self.verbose = verbose
+        self.components = range(self.min_n_components, self.max_n_components+1)
 
     def select(self):
         raise NotImplementedError
@@ -34,7 +35,7 @@ class ModelSelector(object):
     def base_model(self, num_states):
         # with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        # warnings.filterwarnings("ignore", category=RuntimeWarning)
+        
         try:
             hmm_model = GaussianHMM(n_components=num_states, covariance_type="diag", n_iter=1000,
                                     random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
@@ -77,7 +78,25 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        # Select the components in the aforementioned range
+        BIC_scores = []
+        try:
+            for n in self.components:
+                # get the fitted model
+                model = self.base_model(n)
+                # find the liklihood of the fitted model
+                log_liklihood = model.score(self.X, self.lengths)
+                # get the number of parameters needed 
+                d_points = sum(self.lengths)
+                params = n**2 + 2 * n * model.n_features-1 
+                # Generate the BIC score
+                BIC_score = (-2 * log_liklihood ) + (params * math.log(d_points))
+                BIC_scores.append(BIC_score)
+        except:
+            pass
+
+        states = self.components[np.argmin(BIC_scores)] if BIC_scores else self.n_constant
+        return self.base_model(states)
 
 
 class SelectorDIC(ModelSelector):
@@ -89,11 +108,77 @@ class SelectorDIC(ModelSelector):
     DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
     '''
 
+    # def select(self):
+    #     warnings.filterwarnings("ignore", category=DeprecationWarning)
+    #     best_dic = float('-inf')
+    #     best_model = None
+
+    #     for n in self.components:
+    #         if len(self.sequences) <= 1:
+    #             continue
+    #         try:
+    #             model = GaussianHMM(n_components=n, covariance_type="diag", n_iter=1000,
+    #                                     random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
+    #             logL = model.score(self.X, self.lengths)
+    #             total_score = 0
+    #             word_count = 0
+    #             for word, features in self.hwords.items():
+    #                 if word != self.this_word:
+    #                     x, lengths = features
+    #                     try:
+    #                         score = model.score(x, lengths)
+    #                         total_score += score
+    #                         word_count += 1
+    #                     except:
+    #                         print('error in inner')
+    #                         pass
+    #             avg_score = total_score/word_count
+    #             dic = logL-avg_score
+    #             if dic > best_dic:
+    #                 best_model = model
+    #                 best_dic = dic
+    #         except:
+    #             print('Error in outer')
+    #             pass
+    #     return best_model
+
+
+
+    def get_penalty(self, model):
+        other_logL = []
+        for word in self.words:
+            if word != self.this_word:
+                x, lengths = self.hwords[word]
+                score = model.score(x, lengths) 
+                other_logL.append(score)
+        # return the liklihood based off of the liklihoods of the other words
+        return np.mean(other_logL)
+
+
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_dic = float('-inf')    # Initialize the score to the lowest possible value
+        best_model = None
+        # Test models with an increasing number of components
+        for n in self.components:       
+            # Catch failures caused by issues with HMM no longer being supported...
+            try:
+                # Initialize the model with n components
+                model = GaussianHMM(n_components=n, covariance_type="diag", n_iter=1000,
+                                        random_state=self.random_state, verbose=False).fit(self.X, self.lengths)
+                # Get the log likilhood
+                logL = model.score(self.X, self.lengths)
+                # Get the penalty based on the mean of liklihoods from other words
+                penalty = self.get_penalty(model)
+                # Calculate the DIC based on the difference in liklihoods
+                dic = logL - penalty
+                # Base the best model on the best DIC
+                if dic > best_dic:
+                    best_model = model
+                    best_dic = dic
+            except:
+                pass
+        return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -104,5 +189,30 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        best_score = float('-inf')
+        best_model = None
+
+        for n in self.components:
+            if len(self.sequences) <= 1:
+                continue
+            n_splits = min(3, len(self.sequences))
+            k_split = KFold(n_splits=n_splits)
+            total_logL = 0
+            for train_idx, test_idx in k_split.split(self.sequences):
+                x_train, len_train = combine_sequences(train_idx, self.sequences)
+                x_test, len_test = combine_sequences(test_idx, self.sequences)
+                try:
+                    model = GaussianHMM(n_components=n, covariance_type="diag", n_iter=1000,
+                                    random_state=self.random_state, verbose=False).fit(x_train, len_train)
+                    logL = model.score(x_test, len_test)
+                    total_logL += logL
+                except:
+                    pass
+                avg_liklihood = total_logL/n_splits
+                if avg_liklihood > best_score:
+                    best_score = avg_liklihood
+                    best_model = model
+        if not best_model:
+            best_model = self.base_model(self.n_constant)
+
+        return best_model
